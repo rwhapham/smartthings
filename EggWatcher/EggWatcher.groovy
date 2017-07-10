@@ -17,6 +17,13 @@ definition(
 preferences {
 	page(name: "page1", title: "Setup", install: true, uninstall: true)
     {
+        section("Notifications:")
+        {
+            input "audioDevice", "capability.audioNotification", title: "Which audio device?", required: false
+            input "pushNotifications", "bool", title: "Push notfications?", defaultValue: false
+            input "smsNumber", "phone", title: "Send text message to?", defaultValue: false
+        }
+
         section("Schedule:")
         {
             input "startMonth", type: "number", title: "Start month", range: "1..12", required: true
@@ -26,6 +33,7 @@ preferences {
             input "turnTime1", "time", title: "First turn at?", required: true
             input "turnTime2", "time", title: "Second turn at?", required: true
             input "turnTime3", "time", title: "Third turn at?", required: true
+            input "turnTimeAudioTrack", "text", title: "Turn time audio track?", required: false
         }
         
         section("Monitor temperature:")
@@ -35,6 +43,8 @@ preferences {
             input "initialTempHigh", "number", title: "For initial temperatures above?", defaultValue: 101, range: "0..150", required: false
             input "finalTempLow", "number", title: "For final temperatures below?", defaultValue: 96, range: "0..150", required: false
             input "finalTempHigh", "number", title: "For final temperatures above?", defaultValue: 100, range: "0..150", required: false
+            input "lowTempAudioTrack", "text", title: "Low temp audio track?", required: false
+            input "highTempAudioTrack", "text", title: "High temp audio track?", required: false
         }
 
         section("Monitor humidity:")
@@ -44,6 +54,8 @@ preferences {
             input "initialHumidityHigh", "number", title: "For initial humidity above?", defaultValue: 55, range: "0..100", required: false
             input "finalHumidityLow", "number", title: "For final humidity below?", defaultValue: 60, range: "0..100", required: false
             input "finalHumidityHigh", "number", title: "For final humidity above?", defaultValue: 80, range: "0..100", required: false
+            input "lowHumidityAudioTrack", "text", title: "Low humidity audio track?", required: false
+            input "highHumidityTempAudioTrack", "text", title: "High humidity audio track?", required: false
         }
     }
 }
@@ -108,7 +120,14 @@ def turnHandler()
         {
             logInfo "Time to turn the eggs"
 
-            sendPush("Time to turn the eggs")
+            if (pushNotifications)
+                sendPush("Time to turn the eggs")
+                
+            if (smsNumber)
+                sendSms(smsNumber, "Time to turn the eggs")
+                
+            if (audioDevice && turnTimeAudioTrack)
+                audioDevice.playTrack(turnTimeAudioTrack)
         }
         else
         {
@@ -118,7 +137,12 @@ def turnHandler()
                 
                 logInfo "Hatching time...leave the eggs alone"
 
-                sendPush("Hatching time...leave the eggs alone")
+                if (pushNotifications)
+                    sendPush("Hatching time...leave the eggs alone")
+
+
+                if (smsNumber)
+                    sendSms(smsNumber, "Hatching time...leave the eggs alone")
             }
         }
     }
@@ -153,13 +177,27 @@ def temperatureHandler(evt)
         {
             logInfo "Low incubator temperature warning from $evt.displayName: $evt.value"
 
-            sendPush("Low incubator temperature warning: $evt.value")
+            if (pushNotifications)
+                sendPush("Low incubator temperature warning: $evt.value")
+
+            if (smsNumber)
+                sendSms(smsNumber, "Low incubator temperature warning: $evt.value")
+
+            if (audioDevice && lowTempAudioTrack)
+                audioDevice.playTrack(lowTempAudioTrack)
         }
         else if ((evt.floatValue >= actualTempHigh) && ((lastTemp == -1) || (lastTemp < actualTempHigh)) && ((prevTemp == -1) || (prevTemp < actualTempHigh)))
         {
             logInfo "High incubator temperature warning from $evt.displayName: $evt.value"
 
-            sendPush("High incubator temperature warning: $evt.value")
+            if (pushNotifications)
+                sendPush("High incubator temperature warning: $evt.value")
+
+            if (smsNumber)
+                sendSms(smsNumber, "High incubator temperature warning: $evt.value")
+
+            if (audioDevice && highTempAudioTrack)
+                audioDevice.playTrack(highTempAudioTrack)
         }
     }
 }
@@ -193,13 +231,27 @@ def humidityHandler(evt)
         {
             logInfo "Low incubator humidity warning from $evt.displayName: $evt.value"
 
-            sendPush("Low incubator humidity warning: $evt.value")
+            if (pushNotifications)
+                sendPush("Low incubator humidity warning: $evt.value")
+
+            if (smsNumber)
+                sendSms(smsNumber, "Low incubator humidity warning: $evt.value")
+
+            if (audioDevice && lowHumidityAudioTrack)
+                audioDevice.playTrack(lowHumidityAudioTrack)
         }
         else if ((evt.floatValue >= actualHumidityHigh) && ((lastHumidity == -1) || (lastHumidity < actualHumidityHigh)) && ((prevHumidity == -1) || (prevHumidity < actualHumidityHigh)))
         {
             logInfo "High incubator humidity warning from $evt.displayName: $evt.value"
 
-            sendPush("High incubator humidity warning: $evt.value")
+            if (pushNotifications)
+                sendPush("High incubator humidity warning: $evt.value")
+
+            if (smsNumber)
+                sendSms(smsNumber, "High incubator humidity warning: $evt.value")
+
+            if (audioDevice && highHumidityAudioTrack)
+                audioDevice.playTrack(highHumidityAudioTrack)
         }
     }
 }

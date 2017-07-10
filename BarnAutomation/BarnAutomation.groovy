@@ -18,17 +18,11 @@ definition(
 preferences {
 	page(name: "page1", title: "Setup", nextPage: "page2", install: false, uninstall: true)
     {
-        section("Audio notification on open:")
+        section("Audio notification on open/left open:")
         {
             input "notifyOnOpenSensors", "capability.contactSensor", title: "Which?", multiple: true, required: false
-            input "notifyOnOpenToneDevice", "capability.tone", title: "Trigger beep?", required: false
-        }
-
-		section("Monitor things left open:")
-        {
-            input "leftOpenSensors", "capability.contactSensor", title: "Which?", multiple: true, required: false
+            input "leftOpenSensors", "capability.contactSensor", title: "Which left open?", multiple: true, required: false
             input "leftOpenDuration", "number", title: "For how long (mins)?", defaultValue: 15, range: "1..30", required: false
-            input "leftOpenToneDevice", "capability.tone", title: "Trigger beep?", required: false
         }
 
         section("Doorbell triggers:")
@@ -44,14 +38,12 @@ preferences {
             input "tempSensors", "capability.temperatureMeasurement", title: "Which?", multiple: true, required: false
             input "tempLow", "number", title: "For temperatures below?", defaultValue: 45, range: "0..100", required: false
             input "tempHigh", "number", title: "For temperatures above?", defaultValue: 85, range: "0..100", required: false
-            input "tempAlarmDevice", "capability.alarm", title: "Trigger alarm?", required: false
         }
         
         section("Pipe freeze warning:")
         {
             input "pipeTempSensors", "capability.temperatureMeasurement", title: "Which?", multiple: true, required: false
             input "pipeTempLow", "number", title: "For temperatures below?", defaultValue: 35, range: "0..100", required: false
-            input "pipeTempAlarmDevice", "capability.alarm", title: "Trigger alarm?", required: false
         }
         
         section("Monitor outdoor temperature:")
@@ -79,7 +71,6 @@ preferences {
         {
         	input "waterSensors", "capability.waterSensor", title: "Which?", multiple: true, required: false
             input "waterStopPlayers", "capability.musicPlayer", title: "Stop playback on?", multiple: true, required: false
-            input "waterAlarmDevice", "capability.alarm", title: "Trigger alarm?", required: false
         }
         
         section("Night lights:")
@@ -307,13 +298,6 @@ def initialize() {
     {
     	subscribe(notifyOnOpenSensors, "contact.open", onOpenHandler)
         
-        if (notifyOnOpenToneDevice && notifyOnOpenToneDevice.hasCapability("Switch"))
-        {
-        	logTrace "notifyOnOpenToneDevice $notifyOnOpenToneDevice.displayName has switch capability"
-            
-        	subscribe(notifyOnOpenToneDevice, "switch.off", openToneFinishedHandler)
-        }
-        
         notifyOnOpenSensors.each { atomicState[it.id + "_onOpen"] = null }
     }
         
@@ -336,25 +320,11 @@ def initialize() {
         }
         
 		subscribe(leftOpenSensors, "contact.open", startLeftOpenHandler)
-
-        if (leftOpenToneDevice && leftOpenToneDevice.hasCapability("Switch"))
-        {
-        	logTrace "leftOpenToneDevice $leftOpenToneDevice.displayName has switch capability"
-
-			subscribe(leftOpenToneDevice, "switch.off", leftOpenToneFinishedHandler)
-        }
 	}
     
     if (tempSensors)
     {
 		subscribe(tempSensors, "temperature", temperatureHandler)
-
-        if (tempAlarmDevice && tempAlarmDevice.hasCapability("Switch"))
-        {
-        	logTrace "tempAlarmDevice $tempAlarmDevice.displayName has switch capability"
-
-			subscribe(tempAlarmDevice, "switch.off", tempAlarmFinishedHandler)
-        }
 	}
     
     if (outdoorTempSensor)
@@ -363,13 +333,6 @@ def initialize() {
     if (pipeTempSensors)
     {
 		subscribe(pipeTempSensors, "temperature", pipeTemperatureHandler)
-
-        if (pipeTempAlarmDevice && pipeTempAlarmDevice.hasCapability("Switch"))
-        {
-        	logTrace "pipeTempAlarmDevice $pipeTempAlarmDevice.displayName has switch capability"
-
-			subscribe(pipeTempAlarmDevice, "switch.off", pipeTempAlarmFinishedHandler)
-        }
 	}
     
     if (doorbellSensors)
@@ -387,13 +350,6 @@ def initialize() {
     if (waterSensors)
     {
     	subscribe(waterSensors, "water", waterHandler)
-        
-        if (waterAlarmDevice && waterAlarmDevice.hasCapability("Switch"))
-        {
-        	logTrace "waterAlarmDevice $waterAlarmDevice.displayName has switch capability"
-
-			subscribe(waterAlarmDevice, "switch.off", waterAlarmFinishedHandler)
-        }
     }
 
 	if (nightLightSwitches || nightLightOutlets)
@@ -481,7 +437,6 @@ def playNotificationTrack(data)
 
 def onOpenHandler(evt)
 {
-	def tonePlayed = false
     def stateKey = evt.deviceId + "_onOpen"
     def elapsed = Integer.MAX_VALUE
     
@@ -490,18 +445,10 @@ def onOpenHandler(evt)
         elapsed = now() - atomicState[stateKey]
     }
         
-    if ((elapsed >= 15000) && !isDoNotDisturb())
+    if ((elapsed >= 30000) && !isDoNotDisturb())
     {
     	atomicState[stateKey] = now ()
         
-        if (notifyOnOpenToneDevice)
-        {
-            atomicState.triggerDoorbell = true
-            
-            notifyOnOpenToneDevice.beep()
-            tonePlayed = true
-        }
-
         if (audioDevice)
         {
             def pos = notifyOnOpenSensors.findIndexOf { it.id == evt.deviceId }
@@ -512,37 +459,9 @@ def onOpenHandler(evt)
                 def audioTrack = this."$audioTrackName"
 
                 if (audioTrack)
-                {
-                    if (tonePlayed)
-                    {
-                        if (notifyOnOpenToneDevice && notifyOnOpenToneDevice.hasCapability("Switch"))
-                        {
-                            atomicState.onOpenAudioTrack = audioTrack
-                        }
-                        else
-                        {
-                            runIn(3, playNotificationTrack, [overwrite: false, data: [audioTrack: audioTrack]])
-                        }
-                    }
-                    else
-                    {
-                        playNotificationTrack([audioTrack: audioTrack])
-                    }
-                }
+                    playNotificationTrack([audioTrack: audioTrack])
             }
         }
-    }
-}
-
-def openToneFinishedHandler(evt)
-{
-    def audioTrack = atomicState.onOpenAudioTrack
-    
-	if (audioTrack)
-    {
-    	atomicState.onOpenAudioTrack = null
-        
-        playNotificationTrack([audioTrack: audioTrack])
     }
 }
 
@@ -570,19 +489,9 @@ def leftOpenHandler(data)
             {
             	if (!isDoNotDisturb())
                 {
-                    def tonePlayed = false
-
                     logInfo "$device.displayName was left open"
 
                     sendPush ("$device.displayName was left open")
-
-                    if (leftOpenToneDevice)
-                    {
-                        atomicState.triggerDoorbell = true
-                        
-                        leftOpenToneDevice.beep()
-                        tonePlayed = true
-                    }
 
                     if (audioDevice)
                     {
@@ -590,39 +499,11 @@ def leftOpenHandler(data)
                         def audioTrack = this."$audioTrackName"
 
                         if (audioTrack)
-                        {
-                            if (tonePlayed)
-                            {
-						        if (leftOpenToneDevice && leftOpenToneDevice.hasCapability("Switch"))
-                                {
-                                	atomicState.leftOpenAudioTrack = audioTrack
-                                }
-                                else
-                                {
-                                    runIn(3, playNotificationTrack, [overwrite: false, data: [audioTrack: audioTrack]])
-                                }
-                            }
-                            else
-                            {
-                                playNotificationTrack([audioTrack: audioTrack])
-                            }
-                        }
+                            playNotificationTrack([audioTrack: audioTrack])
                     }
                 }
             }
         }
-    }
-}
-
-def leftOpenToneFinishedHandler(evt)
-{
-    def audioTrack = atomicState.leftOpenAudioTrack
-    
-	if (audioTrack)
-    {
-    	atomicState.leftOpenAudioTrack = null
-        
-        playNotificationTrack([audioTrack: audioTrack])
     }
 }
 
@@ -637,8 +518,6 @@ def temperatureHandler(evt)
         def actualTempHigh = (tempHigh) ? tempHigh : 85
         def lastTemp = (recentTempEvents && (recentTempEvents.size () > 1)) ? recentTempEvents[1].integerValue : -1
         def prevTemp = (recentTempEvents && (recentTempEvents.size () > 2)) ? recentTempEvents[2].integerValue : -1
-        def playTone = false
-        def tonePlayed = false
         def audioTrackName = null
         def audioTrack = null
 
@@ -650,7 +529,6 @@ def temperatureHandler(evt)
 
             sendPush("Low temperature warning from $evt.displayName: $evt.value")
 
-            playTone = true
             audioTrackName = "lowTempAudioTrack" + pos
             audioTrack = this."$audioTrackName"
         }
@@ -660,49 +538,12 @@ def temperatureHandler(evt)
 
             sendPush("High temperature warning from $evt.displayName: $evt.value")
 
-            playTone = true
             audioTrackName = "highTempAudioTrack" + pos
             audioTrack = this."$audioTrackName"
         }
 
-        if (playTone && tempAlarmDevice)
-        {
-            atomicState.triggerDoorbell = true
-
-            tempAlarmDevice.siren()
-            tonePlayed = true
-        }
-
         if (audioDevice && audioTrack)
-        {
-            if (tonePlayed)
-            {
-                if (tempAlarmDevice && tempAlarmDevice.hasCapability("Switch"))
-                {
-                    atomicState.tempWarningAudioTrack = audioTrack
-                }
-                else
-                {
-                    runIn(3, playNotificationTrack, [overwrite: false, data: [audioTrack: audioTrack]])
-                }
-            }
-            else
-            {
-                playNotificationTrack([audioTrack: audioTrack])
-            }
-        }
-    }
-}
-
-def tempAlarmFinishedHandler(evt)
-{
-    def audioTrack = atomicState.tempWarningAudioTrack
-    
-	if (audioTrack)
-    {
-    	atomicState.tempWarningAudioTrack = null
-        
-        playNotificationTrack([audioTrack: audioTrack])
+            playNotificationTrack([audioTrack: audioTrack])
     }
 }
 
@@ -716,8 +557,6 @@ def pipeTemperatureHandler(evt)
         def actualTempLow = (tempLow) ? tempLow : 35
         def lastTemp = (recentTempEvents && (recentTempEvents.size () > 1)) ? recentTempEvents[1].integerValue : -1
         def prevTemp = (recentTempEvents && (recentTempEvents.size () > 2)) ? recentTempEvents[2].integerValue : -1
-        def playTone = false
-        def tonePlayed = false
         def audioTrackName = null
         def audioTrack = null
 
@@ -729,49 +568,12 @@ def pipeTemperatureHandler(evt)
 
             sendPush("Low pipe temperature warning from $evt.displayName: $evt.value")
 
-            playTone = true
             audioTrackName = "lowPipeTempAudioTrack" + pos
             audioTrack = this."$audioTrackName"
         }
 
-        if (playTone && pipeTempAlarmDevice)
-        {
-            atomicState.triggerDoorbell = true
-
-            pipeTempAlarmDevice.siren()
-            tonePlayed = true
-        }
-
         if (audioDevice && audioTrack)
-        {
-            if (tonePlayed)
-            {
-                if (pipeTempAlarmDevice && pipeTempAlarmDevice.hasCapability("Switch"))
-                {
-                    atomicState.pipeTempWarningAudioTrack = audioTrack
-                }
-                else
-                {
-                    runIn(3, playNotificationTrack, [overwrite: false, data: [audioTrack: audioTrack]])
-                }
-            }
-            else
-            {
-                playNotificationTrack([audioTrack: audioTrack])
-            }
-        }
-    }
-}
-
-def pipeTempAlarmFinishedHandler(evt)
-{
-    def audioTrack = atomicState.pipeTempWarningAudioTrack
-    
-	if (audioTrack)
-    {
-    	atomicState.pipeTempWarningAudioTrack = null
-        
-        playNotificationTrack([audioTrack: audioTrack])
+            playNotificationTrack([audioTrack: audioTrack])
     }
 }
 
@@ -1008,8 +810,6 @@ def waterHandler(evt)
 {
 	if (evt.value != "dry")
     {
-        def tonePlayed = false
-
 		if (waterStopPlayers)
         {
             waterStopPlayers.each {
@@ -1022,14 +822,6 @@ def waterHandler(evt)
             }
         }
         
-        if (waterAlarmDevice)
-        {
-            atomicState.triggerDoorbell = true
-            
-            waterAlarmDevice.siren()
-            tonePlayed = true
-        }
-
         if (audioDevice)
         {
             def pos = waterSensors.findIndexOf { it.id == evt.deviceId }
@@ -1040,37 +832,9 @@ def waterHandler(evt)
                 def audioTrack = this."$audioTrackName"
 
                 if (audioTrack)
-                {
-                    if (tonePlayed)
-                    {
-				        if (waterAlarmDevice && waterAlarmDevice.hasCapability("Switch"))
-                        {
-                        	atomicState.leakAudioTrack = audioTrack
-                        }
-                        else
-                        {
-                            runIn(3, playNotificationTrack, [overwrite: false, data: [audioTrack: audioTrack]])
-                        }
-                    }
-                    else
-                    {
-                        playNotificationTrack([audioTrack: audioTrack])
-                    }
-                }
+                    playNotificationTrack([audioTrack: audioTrack])
             }
         }
-    }
-}
-
-def waterAlarmFinishedHandler(evt)
-{
-    def audioTrack = atomicState.leakAudioTrack
-    
-	if (audioTrack)
-    {
-    	atomicState.leakAudioTrack = null
-        
-        playNotificationTrack([audioTrack: audioTrack])
     }
 }
 
@@ -1079,8 +843,6 @@ def nightLightLuxHandler(evt)
 	def luxOnThreshold = nightLightLuxLevel ?: 200
     def luxOffThreshold = nightLightOffLuxLevel ?: 300
     def luxHistory = atomicState.nightLightLuxHistory ?: [-1, -1]
-    def playTone = false
-    def tonePlayed = false
     def audioTrackName = null
     def audioTrack = null
 
